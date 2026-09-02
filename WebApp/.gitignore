@@ -1,0 +1,7 @@
+sianna.db
+sianna.db-wal
+sianna.db-shm
+__pycache__/
+*.pyc
+landing/node_modules/
+landing/dist/

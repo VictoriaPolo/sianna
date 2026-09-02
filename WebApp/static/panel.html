@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SIANNA · Panel de seguimiento</title>
+<script src="/vendor/chart.umd.js"></script>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --surface-2:      #ffffff;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --good:           #0ca30c;
+    --warning:        #fab219;
+    --serious:        #ec835a;
+    --critical:       #d03b3b;
+    --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+    --series-5: #e87ba4; --series-6: #008300; --series-7: #4a3aa7; --series-8: #e34948;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --surface-2:      #221f1f;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --good:           #0ca30c;
+      --warning:        #fab219;
+      --serious:        #ec835a;
+      --critical:       #e66767;
+      --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+      --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --surface-2:      #221f1f;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+    background: var(--surface-1);
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 700; }
+  header .sub { color: var(--text-secondary); font-size: 13px; }
+  .spacer { flex: 1; }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 10px; border-radius: 999px; font-size: 13px;
+    border: 1px solid var(--border); background: var(--surface-2);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+  .dot.on { background: var(--good); }
+  .dot.off { background: var(--critical); }
+  select {
+    font: inherit; padding: 6px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary);
+  }
+  nav {
+    display: flex; gap: 4px; padding: 8px 24px; background: var(--surface-1);
+    border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  nav button {
+    font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 8px;
+    border: none; background: transparent; color: var(--text-secondary); cursor: pointer;
+  }
+  nav button.active { background: var(--surface-2); color: var(--text-primary); font-weight: 600; box-shadow: 0 0 0 1px var(--border); }
+  main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+  section.tab { display: none; }
+  section.tab.active { display: block; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .card h3 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); font-weight: 600; }
+  .stat-value { font-size: 30px; font-weight: 700; line-height: 1.1; }
+  .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  .chart-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 20px; }
+  .chart-card h3 { margin: 0 0 14px; font-size: 14px; font-weight: 600; }
+  .chart-wrap { position: relative; height: 280px; }
+  .chart-wrap.tall { height: 340px; }
+  .fingers-row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .finger {
+    flex: 1; min-width: 90px; text-align: center; padding: 16px 8px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--surface-2);
+  }
+  .finger .circle {
+    width: 34px; height: 34px; border-radius: 50%; margin: 0 auto 8px;
+    border: 2px solid var(--baseline); background: transparent;
+  }
+  .finger.open .circle { background: var(--good); border-color: var(--good); }
+  .finger .label { font-size: 12px; color: var(--text-secondary); }
+  .finger .state { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .gesture-banner {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 18px; margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .gesture-banner .name { font-size: 20px; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--grid); }
+  th { color: var(--text-secondary); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .table-scroll { overflow-x: auto; }
+  .empty { color: var(--text-muted); font-size: 13px; padding: 20px 0; text-align: center; }
+  .legend-inline { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--text-secondary); }
+  .legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
+  .confusion-cell { text-align: center; font-variant-numeric: tabular-nums; border-radius: 4px; }
+  .btn-refresh {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary); cursor: pointer;
+  }
+  footer { text-align: center; color: var(--text-muted); font-size: 12px; padding: 24px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>SIANNA · Panel de seguimiento</h1>
+    <div class="sub">Mano robótica · reconocimiento de gestos con visión artificial</div>
+  </div>
+  <div class="spacer"></div>
+  <span class="status-pill"><span class="dot" id="conn-dot"></span><span id="conn-text">Sin datos aún</span></span>
+  <select id="session-select"></select>
+</header>
+
+<nav>
+  <button data-tab="live" class="active">En vivo</button>
+  <button data-tab="accuracy">Precisión</button>
+  <button data-tab="latency">Tiempos de respuesta</button>
+  <button data-tab="repetitions">Repeticiones</button>
+  <button data-tab="sessions">Sesiones</button>
+</nav>
+
+<main>
+
+  <!-- ===================== EN VIVO ===================== -->
+  <section class="tab active" id="tab-live">
+    <div class="gesture-banner">
+      <div>
+        <div class="stat-label">Gesto actual</div>
+        <div class="name" id="live-gesture">—</div>
+      </div>
+      <div>
+        <div class="stat-label">Mano detectada</div>
+        <div class="name" id="live-hand">—</div>
+      </div>
+      <div>
+        <div class="stat-label">Latencia</div>
+        <div class="name" id="live-latency">—</div>
+      </div>
+      <div>
+        <div class="stat-label">FPS</div>
+        <div class="name" id="live-fps">—</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Estado de los dedos</h3>
+      <div class="fingers-row" id="fingers-row">
+        <div class="finger" data-i="0"><div class="circle"></div><div class="label">Pulgar</div><div class="state">cerrado</div></div>
+        <div class="finger" data-i="1"><div class="circle"></div><div class="label">Índice</div><div class="state">cerrado</div></div>
+        <div class="finger" data-i="2"><div class="circle"></div><div class="label">Medio</div><div class="state">cerrado</div></div>
+        <div class="finger" data-i="3"><div class="circle"></div><div class="label">Anular</div><div class="state">cerrado</div></div>
+        <div class="finger" data-i="4"><div class="circle"></div><div class="label">Meñique</div><div class="state">cerrado</div></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Latencia en vivo (últimas lecturas)</h3>
+      <div class="chart-wrap"><canvas id="chart-live-latency"></canvas></div>
+    </div>
+  </section>
+
+  <!-- ===================== PRECISIÓN ===================== -->
+  <section class="tab" id="tab-accuracy">
+    <div class="grid">
+      <div class="card">
+        <h3>Precisión general</h3>
+        <div class="stat-value" id="acc-overall">—</div>
+        <div class="stat-label" id="acc-n">0 pruebas</div>
+      </div>
+      <div class="card">
+        <h3>Tiempo de respuesta prom.</h3>
+        <div class="stat-value" id="acc-rt">—</div>
+        <div class="stat-label">en pruebas de precisión</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Precisión por gesto</h3>
+      <div class="chart-wrap"><canvas id="chart-accuracy"></canvas></div>
+      <div class="empty" id="accuracy-empty" style="display:none">
+        Aún no hay pruebas de precisión registradas. Ejecuta gestureRecognition.py y presiona
+        <strong>t</strong> para iniciar una prueba guiada por gesto.
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Matriz de confusión (gesto esperado vs. detectado)</h3>
+      <div class="table-scroll" id="confusion-wrap"></div>
+    </div>
+  </section>
+
+  <!-- ===================== TIEMPOS DE RESPUESTA ===================== -->
+  <section class="tab" id="tab-latency">
+    <div class="grid">
+      <div class="card"><h3>Promedio</h3><div class="stat-value" id="lat-avg">—</div><div class="stat-label">ms</div></div>
+      <div class="card"><h3>Mediana</h3><div class="stat-value" id="lat-median">—</div><div class="stat-label">ms</div></div>
+      <div class="card"><h3>P95</h3><div class="stat-value" id="lat-p95">—</div><div class="stat-label">ms</div></div>
+      <div class="card"><h3>Mínimo / Máximo</h3><div class="stat-value" id="lat-minmax">—</div><div class="stat-label">ms</div></div>
+    </div>
+    <div class="chart-card">
+      <h3>Latencia por evento (más recientes primero → orden cronológico)</h3>
+      <div class="chart-wrap tall"><canvas id="chart-latency"></canvas></div>
+      <div class="empty" id="latency-empty" style="display:none">Aún no hay eventos con latencia registrada.</div>
+    </div>
+    <div class="chart-card">
+      <h3>Latencia promedio por etapa (captura → MediaPipe → inferencia → serial → servo)</h3>
+      <div class="chart-wrap"><canvas id="chart-latency-stages"></canvas></div>
+      <div class="empty" id="latency-stages-empty" style="display:none">Aún no hay datos de latencia por etapa.</div>
+    </div>
+  </section>
+
+  <!-- ===================== REPETICIONES ===================== -->
+  <section class="tab" id="tab-repetitions">
+    <div class="chart-card">
+      <h3>Repeticiones por gesto</h3>
+      <div class="chart-wrap"><canvas id="chart-repetitions"></canvas></div>
+      <div class="empty" id="repetitions-empty" style="display:none">Aún no hay repeticiones registradas para esta sesión.</div>
+    </div>
+  </section>
+
+  <!-- ===================== SESIONES ===================== -->
+  <section class="tab" id="tab-sessions">
+    <div class="chart-card">
+      <h3>Historial de sesiones</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>ID</th><th>Inicio</th><th>Fin</th><th class="num">Eventos</th><th class="num">Pruebas</th><th>Notas</th></tr></thead>
+          <tbody id="sessions-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>SIANNA · datos guardados localmente en sianna.db</footer>
+
+<script>
+const API = "";
+const PALETTE = [
+  getVar("--series-1"), getVar("--series-2"), getVar("--series-3"), getVar("--series-4"),
+  getVar("--series-5"), getVar("--series-6"), getVar("--series-7"), getVar("--series-8"),
+];
+function getVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#2a78d6";
+}
+// Asignación fija (nunca ciclada) de color por nombre de gesto, en orden de aparición.
+const gestureColorMap = new Map();
+function colorFor(gestureName) {
+  if (!gestureColorMap.has(gestureName)) {
+    gestureColorMap.set(gestureName, PALETTE[gestureColorMap.size % PALETTE.length]);
+  }
+  return gestureColorMap.get(gestureName);
+}
+
+function ink() { return getVar("--text-secondary"); }
+function grid() { return getVar("--grid"); }
+
+Chart.defaults.font.family = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+Chart.defaults.color = ink();
+Chart.defaults.borderColor = grid();
+
+// ---------------------------------------------------------------- tabs ----
+document.querySelectorAll("nav button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll("section.tab").forEach(s => s.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+    refreshStats();
+  });
+});
+
+// ------------------------------------------------------- session filter ----
+let currentSession = "all";
+async function loadSessions() {
+  const res = await fetch(API + "/api/sessions");
+  const sessions = await res.json();
+  const sel = document.getElementById("session-select");
+  const prev = sel.value || currentSession;
+  sel.innerHTML = "";
+  const optAll = document.createElement("option");
+  optAll.value = "all"; optAll.textContent = "Todas las sesiones";
+  sel.appendChild(optAll);
+  sessions.forEach(s => {
+    const opt = document.createElement("option");
+    opt.value = s.id;
+    const started = new Date(s.started_at).toLocaleString();
+    opt.textContent = `Sesión #${s.id} · ${started} · ${s.n_events} eventos`;
+    sel.appendChild(opt);
+  });
+  if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  currentSession = sel.value;
+
+  const body = document.getElementById("sessions-body");
+  if (!sessions.length) {
+    body.innerHTML = `<tr><td colspan="6" class="empty">Aún no hay sesiones. Ejecuta gestureRecognition.py.</td></tr>`;
+  } else {
+    body.innerHTML = sessions.map(s => `
+      <tr>
+        <td>#${s.id}</td>
+        <td>${new Date(s.started_at).toLocaleString()}</td>
+        <td>${s.ended_at ? new Date(s.ended_at).toLocaleString() : "—"}</td>
+        <td class="num">${s.n_events}</td>
+        <td class="num">${s.n_tests}</td>
+        <td>${s.notes || ""}</td>
+      </tr>`).join("");
+  }
+}
+document.getElementById("session-select").addEventListener("change", (e) => {
+  currentSession = e.target.value;
+  refreshStats();
+});
+
+// ------------------------------------------------------------- live poll ----
+let liveLatencyHistory = [];
+const liveLatencyChart = new Chart(document.getElementById("chart-live-latency"), {
+  type: "line",
+  data: { labels: [], datasets: [{
+    data: [], borderColor: PALETTE[0], backgroundColor: "transparent",
+    borderWidth: 2, pointRadius: 0, tension: 0.25,
+  }]},
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    animation: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { display: false },
+      y: { beginAtZero: true, title: { display: true, text: "ms" }, grid: { color: grid() } },
+    },
+  },
+});
+
+async function pollLive() {
+  try {
+    const res = await fetch(API + "/api/live");
+    const s = await res.json();
+    const dot = document.getElementById("conn-dot");
+    const text = document.getElementById("conn-text");
+    if (s.connected) {
+      dot.className = "dot on"; text.textContent = "Conectado";
+    } else {
+      dot.className = "dot off"; text.textContent = s.updated_at ? "Desconectado" : "Sin datos aún";
+    }
+    document.getElementById("live-gesture").textContent = s.gesture_name || "—";
+    document.getElementById("live-hand").textContent = s.hand_detected ? "Sí" : "No";
+    document.getElementById("live-latency").textContent = s.latency_ms != null ? `${s.latency_ms.toFixed(1)} ms` : "—";
+    document.getElementById("live-fps").textContent = s.fps != null ? s.fps.toFixed(1) : "—";
+
+    const fingers = s.fingers || [null,null,null,null,null];
+    document.querySelectorAll("#fingers-row .finger").forEach((el, i) => {
+      const v = fingers[i];
+      el.classList.toggle("open", v === 1);
+      el.querySelector(".state").textContent = v === 1 ? "abierto" : v === 0 ? "cerrado" : "—";
+    });
+
+    if (s.connected && s.latency_ms != null) {
+      liveLatencyHistory.push(s.latency_ms);
+      if (liveLatencyHistory.length > 60) liveLatencyHistory.shift();
+      liveLatencyChart.data.labels = liveLatencyHistory.map((_, i) => i);
+      liveLatencyChart.data.datasets[0].data = liveLatencyHistory;
+      liveLatencyChart.update();
+    }
+  } catch (e) { /* servidor recién iniciado, ignorar */ }
+}
+setInterval(pollLive, 400);
+
+// ------------------------------------------------------------- stats ----
+let accuracyChart, latencyChart, latencyStagesChart, repetitionsChart;
+const STAGE_LABELS = { captura_ms: "Captura", mediapipe_ms: "MediaPipe", inferencia_ms: "Inferencia", serial_ms: "Serial", servo_ms: "Servo" };
+
+function barChart(ctx, labels, data, label) {
+  const colors = labels.map(colorFor);
+  return new Chart(ctx, {
+    type: "bar",
+    data: { labels, datasets: [{ label, data, backgroundColor: colors, borderRadius: 4, borderSkipped: false, maxBarThickness: 48 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { beginAtZero: true, grid: { color: grid() } },
+      },
+    },
+  });
+}
+
+async function refreshAccuracy() {
+  const res = await fetch(`${API}/api/stats/accuracy?session_id=${currentSession}`);
+  const data = await res.json();
+  document.getElementById("acc-overall").textContent = data.overall_accuracy_pct != null ? data.overall_accuracy_pct + "%" : "—";
+  document.getElementById("acc-n").textContent = `${data.n_tests} pruebas`;
+  document.getElementById("acc-rt").textContent = data.avg_response_time_ms != null ? data.avg_response_time_ms.toFixed(0) + " ms" : "—";
+
+  const labels = data.per_gesture.map(g => g.gesture_name);
+  const values = data.per_gesture.map(g => g.accuracy_pct);
+  document.getElementById("accuracy-empty").style.display = labels.length ? "none" : "block";
+  if (accuracyChart) accuracyChart.destroy();
+  accuracyChart = barChart(document.getElementById("chart-accuracy"), labels, values, "% de acierto");
+  accuracyChart.options.scales.y.max = 100;
+  accuracyChart.update();
+
+  const confusionWrap = document.getElementById("confusion-wrap");
+  const expectedGestures = Object.keys(data.confusion).sort();
+  if (!expectedGestures.length) {
+    confusionWrap.innerHTML = `<div class="empty">Sin datos todavía.</div>`;
+  } else {
+    const detectedSet = new Set();
+    expectedGestures.forEach(g => Object.keys(data.confusion[g]).forEach(d => detectedSet.add(d)));
+    const detected = [...detectedSet].sort();
+    let html = "<table><thead><tr><th>Esperado \\ Detectado</th>" + detected.map(d => `<th class="num">${d}</th>`).join("") + "</tr></thead><tbody>";
+    expectedGestures.forEach(exp => {
+      html += `<tr><th>${exp}</th>`;
+      detected.forEach(det => {
+        const n = (data.confusion[exp][det]) || 0;
+        const isDiag = exp === det;
+        const bg = n === 0 ? "transparent" : (isDiag ? "rgba(12,163,12,0.18)" : "rgba(208,59,59,0.15)");
+        html += `<td class="num confusion-cell" style="background:${bg}">${n || ""}</td>`;
+      });
+      html += "</tr>";
+    });
+    html += "</tbody></table>";
+    confusionWrap.innerHTML = html;
+  }
+}
+
+async function refreshLatency() {
+  const res = await fetch(`${API}/api/stats/latency?session_id=${currentSession}`);
+  const data = await res.json();
+  const s = data.summary || {};
+  document.getElementById("lat-avg").textContent = s.avg != null ? s.avg : "—";
+  document.getElementById("lat-median").textContent = s.median != null ? s.median : "—";
+  document.getElementById("lat-p95").textContent = s.p95 != null ? s.p95 : "—";
+  document.getElementById("lat-minmax").textContent = (s.min != null) ? `${s.min} / ${s.max}` : "—";
+
+  const points = data.points || [];
+  document.getElementById("latency-empty").style.display = points.length ? "none" : "block";
+  const labels = points.map(p => new Date(p.ts).toLocaleTimeString());
+  const values = points.map(p => p.latency_ms);
+  if (latencyChart) latencyChart.destroy();
+  latencyChart = new Chart(document.getElementById("chart-latency"), {
+    type: "line",
+    data: { labels, datasets: [{ data: values, borderColor: PALETTE[0], backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0.2 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 8 }, grid: { display: false } },
+        y: { beginAtZero: true, title: { display: true, text: "ms" }, grid: { color: grid() } },
+      },
+    },
+  });
+
+  const stages = data.stages || {};
+  const stageKeys = Object.keys(STAGE_LABELS).filter(k => stages[k] != null);
+  document.getElementById("latency-stages-empty").style.display = stageKeys.length ? "none" : "block";
+  if (latencyStagesChart) latencyStagesChart.destroy();
+  latencyStagesChart = barChart(
+    document.getElementById("chart-latency-stages"),
+    stageKeys.map(k => STAGE_LABELS[k]),
+    stageKeys.map(k => stages[k]),
+    "ms promedio"
+  );
+}
+
+async function refreshRepetitions() {
+  const res = await fetch(`${API}/api/stats/repetitions?session_id=${currentSession}`);
+  const data = await res.json();
+  document.getElementById("repetitions-empty").style.display = data.length ? "none" : "block";
+  const labels = data.map(d => d.gesture_name);
+  const values = data.map(d => d.repeticiones);
+  if (repetitionsChart) repetitionsChart.destroy();
+  repetitionsChart = barChart(document.getElementById("chart-repetitions"), labels, values, "Repeticiones");
+}
+
+async function refreshStats() {
+  const active = document.querySelector("nav button.active").dataset.tab;
+  if (active === "accuracy") refreshAccuracy();
+  else if (active === "latency") refreshLatency();
+  else if (active === "repetitions") refreshRepetitions();
+  else if (active === "sessions") loadSessions();
+}
+
+function activateTabFromHash() {
+  const tab = location.hash.slice(1);
+  const btn = document.querySelector(`nav button[data-tab="${tab}"]`);
+  if (!btn) return;
+  document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll("section.tab").forEach(s => s.classList.remove("active"));
+  btn.classList.add("active");
+  document.getElementById("tab-" + tab).classList.add("active");
+}
+
+async function boot() {
+  activateTabFromHash();
+  await loadSessions();
+  await refreshStats();
+  pollLive();
+}
+boot();
+setInterval(loadSessions, 5000);
+setInterval(refreshStats, 4000);
+</script>
+</body>
+</html>

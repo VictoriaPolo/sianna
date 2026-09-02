@@ -1,0 +1,5 @@
+pip install mediapipe==0.10.7
+pip install numpy==1.23.5
+pip install protobuf==3.20.1
+pip install opencv-python==4.8.1.78
+pip install requests
