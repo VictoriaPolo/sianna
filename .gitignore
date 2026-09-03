@@ -3,3 +3,6 @@ __pycache__/
 .fuse_hidden*
 .DS_Store
 Thumbs.db
+
+.vercel
+.env*
