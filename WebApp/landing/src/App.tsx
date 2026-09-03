@@ -20,6 +20,15 @@ function Logo() {
   )
 }
 
+// El panel (/panel) solo existe cuando Flask corre localmente (necesita la
+// cámara y el ESP32 por USB). En el deploy público de Vercel no hay backend,
+// así que esos links quedan deshabilitados ahí para no romper con un 404.
+const PANEL_URL =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? '/panel'
+    : undefined
+
 function App() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#f0f0ee]">
@@ -35,10 +44,10 @@ function App() {
       <div className="relative z-10 flex flex-col min-h-screen">
         <nav className="flex items-center justify-center pt-4 sm:pt-6 px-4 sm:px-8 gap-2 sm:gap-3">
           <a
-            href="/panel"
+            href={PANEL_URL ?? undefined}
             aria-label="Ir al panel de seguimiento"
             className="flex items-center justify-center rounded-full w-10 h-10 sm:w-11 sm:h-11 shrink-0"
-            style={{ backgroundColor: '#EDEDED' }}
+            style={{ backgroundColor: '#EDEDED', cursor: PANEL_URL ? 'pointer' : 'default' }}
           >
             <Logo />
           </a>
@@ -50,8 +59,9 @@ function App() {
             {NAV_LINKS.map(({ label, tab }) => (
               <a
                 key={tab}
-                href={`/panel#${tab}`}
+                href={PANEL_URL ? `${PANEL_URL}#${tab}` : undefined}
                 className="whitespace-nowrap text-[12px] sm:text-[14px] font-medium text-gray-700 hover:text-gray-900 transition-colors duration-200"
+                style={{ cursor: PANEL_URL ? 'pointer' : 'default' }}
               >
                 {label}
               </a>
@@ -80,8 +90,9 @@ function App() {
             </p>
 
             <a
-              href="/panel"
+              href={PANEL_URL ?? undefined}
               className="inline-flex items-center gap-2 text-[13px] font-medium text-blue-500 border border-blue-400 rounded-full px-5 py-2.5 hover:bg-blue-500 hover:text-white hover:border-blue-500 transition-all duration-200 group"
+              style={{ cursor: PANEL_URL ? 'pointer' : 'default' }}
             >
               Try a free fitting
               <span className="transition-transform duration-200 group-hover:translate-x-0.5">
