@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 
 import psycopg2
 import psycopg2.extras
-from flask import Flask, g, jsonify, request, send_from_directory
+from flask import Flask, g, jsonify, redirect, request, send_from_directory
 
 API_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_DIR = os.path.join(os.path.dirname(API_DIR), "public")
@@ -183,7 +183,10 @@ def read_live_state():
 
 @app.route("/")
 def index():
-    return send_from_directory(PUBLIC_DIR, "panel.html")
+    # En Vercel esta ruta nunca se usa para "/" (lo sirve el hosting estático
+    # de la landing directamente). Localmente, "Inicio" manda a la landing
+    # pública para no depender de tener el build de Vite a mano.
+    return redirect("https://sianna.vercel.app")
 
 
 @app.route("/panel")

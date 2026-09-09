@@ -73,6 +73,11 @@
   }
   header h1 { font-size: 18px; margin: 0; font-weight: 700; }
   header .sub { color: var(--text-secondary); font-size: 13px; }
+  .back-link {
+    font-size: 13px; font-weight: 600; color: var(--text-secondary);
+    text-decoration: none; white-space: nowrap;
+  }
+  .back-link:hover { color: var(--text-primary); }
   .spacer { flex: 1; }
   .status-pill {
     display: inline-flex; align-items: center; gap: 6px;
@@ -147,6 +152,7 @@
 <body>
 
 <header>
+  <a href="/" class="back-link">← Inicio</a>
   <div>
     <h1>SIANNA · Panel de seguimiento</h1>
     <div class="sub">Mano robótica · reconocimiento de gestos con visión artificial</div>
