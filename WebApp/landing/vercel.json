@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/panel", "destination": "/panel.html" },
+    { "source": "/api/(.*)", "destination": "/api/index" }
+  ]
+}
