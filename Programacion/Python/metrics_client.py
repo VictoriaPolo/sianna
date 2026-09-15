@@ -147,7 +147,15 @@ class MetricsClient:
     # -- pruebas de precisión ------------------------------------------------------
 
     def log_accuracy_test(
-        self, expected_gesture, detected_gesture, correct, response_time_ms, timed_out=False
+        self,
+        expected_gesture,
+        detected_gesture,
+        correct,
+        response_time_ms,
+        timed_out=False,
+        brightness=None,
+        expected_fingers=None,
+        detected_fingers=None,
     ):
         if not self.enabled or not self.session_id:
             return
@@ -161,6 +169,9 @@ class MetricsClient:
                     "correct": bool(correct),
                     "response_time_ms": response_time_ms,
                     "timed_out": bool(timed_out),
+                    "brightness": brightness,
+                    "expected_fingers": list(expected_fingers) if expected_fingers is not None else None,
+                    "detected_fingers": list(detected_fingers) if detected_fingers is not None else None,
                 },
             )
         )

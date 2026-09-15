@@ -79,7 +79,10 @@ CREATE TABLE IF NOT EXISTS accuracy_tests (
     detected_gesture TEXT,
     correct INTEGER NOT NULL,
     response_time_ms REAL,
-    timed_out INTEGER NOT NULL DEFAULT 0
+    timed_out INTEGER NOT NULL DEFAULT 0,
+    brightness REAL,
+    expected_fingers TEXT,
+    detected_fingers TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tests_session ON accuracy_tests(session_id);
 CREATE INDEX IF NOT EXISTS idx_tests_gesture ON accuracy_tests(expected_gesture);
@@ -124,9 +127,19 @@ def close_db(exception=None):
         db.close()
 
 
+MIGRATIONS = [
+    "ALTER TABLE accuracy_tests ADD COLUMN IF NOT EXISTS brightness REAL",
+    "ALTER TABLE accuracy_tests ADD COLUMN IF NOT EXISTS expected_fingers TEXT",
+    "ALTER TABLE accuracy_tests ADD COLUMN IF NOT EXISTS detected_fingers TEXT",
+]
+
+
 def init_db():
     conn = PgConnection(DATABASE_URL)
     conn.executescript(SCHEMA)
+    # Agrega columnas nuevas a bases ya creadas con un esquema anterior.
+    for statement in MIGRATIONS:
+        conn.executescript(statement)
     conn.commit()
     conn.close()
 
@@ -326,12 +339,15 @@ def set_live_test():
 @app.route("/api/accuracy_tests", methods=["POST"])
 def add_accuracy_test():
     payload = request.get_json(force=True)
+    expected_fingers = payload.get("expected_fingers")
+    detected_fingers = payload.get("detected_fingers")
     db = get_db()
     db.execute(
         """
         INSERT INTO accuracy_tests
-            (session_id, ts, expected_gesture, detected_gesture, correct, response_time_ms, timed_out)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+            (session_id, ts, expected_gesture, detected_gesture, correct, response_time_ms, timed_out,
+             brightness, expected_fingers, detected_fingers)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload["session_id"],
@@ -341,6 +357,9 @@ def add_accuracy_test():
             int(bool(payload.get("correct", False))),
             payload.get("response_time_ms"),
             int(bool(payload.get("timed_out", False))),
+            payload.get("brightness"),
+            json.dumps(expected_fingers) if expected_fingers is not None else None,
+            json.dumps(detected_fingers) if detected_fingers is not None else None,
         ),
     )
     db.commit()
@@ -420,13 +439,27 @@ def stats_latency():
     return jsonify({"points": [dict(r) for r in rows], "summary": summary, "stages": stages})
 
 
+FINGER_LABELS = ["Pulgar", "Índice", "Medio", "Anular", "Meñique"]
+
+
+def _lighting_bucket(brightness):
+    if brightness is None:
+        return None
+    if brightness < 85:
+        return "Baja"
+    if brightness < 170:
+        return "Media"
+    return "Alta"
+
+
 @app.route("/api/stats/accuracy", methods=["GET"])
 def stats_accuracy():
     db = get_db()
     clause, params = _session_filter_clause()
     rows = db.execute(
         f"""
-        SELECT expected_gesture, detected_gesture, correct, response_time_ms, timed_out
+        SELECT expected_gesture, detected_gesture, correct, response_time_ms, timed_out,
+               brightness, expected_fingers, detected_fingers
         FROM accuracy_tests
         WHERE 1 = 1 {clause}
         """,
@@ -436,6 +469,8 @@ def stats_accuracy():
     per_gesture = {}
     confusion = {}
     response_times = []
+    finger_errors = [0, 0, 0, 0, 0]
+    lighting = {}
     for r in rows:
         exp = r["expected_gesture"]
         det = r["detected_gesture"] or "(sin detección / tiempo agotado)"
@@ -447,6 +482,20 @@ def stats_accuracy():
         confusion[exp][det] = confusion[exp].get(det, 0) + 1
         if r["response_time_ms"] is not None:
             response_times.append(r["response_time_ms"])
+
+        if r["expected_fingers"] and r["detected_fingers"]:
+            exp_fingers = json.loads(r["expected_fingers"])
+            det_fingers = json.loads(r["detected_fingers"])
+            for i, (a, b) in enumerate(zip(exp_fingers, det_fingers)):
+                if a != b:
+                    finger_errors[i] += 1
+
+        bucket = _lighting_bucket(r["brightness"])
+        if bucket:
+            lighting.setdefault(bucket, {"total": 0, "correctas": 0})
+            lighting[bucket]["total"] += 1
+            if r["correct"]:
+                lighting[bucket]["correctas"] += 1
 
     per_gesture_out = [
         {
@@ -460,6 +509,26 @@ def stats_accuracy():
         for g, v in sorted(per_gesture.items())
     ]
 
+    by_finger = [
+        {"finger": label, "errores": finger_errors[i]}
+        for i, label in enumerate(FINGER_LABELS)
+    ]
+
+    lighting_order = {"Baja": 0, "Media": 1, "Alta": 2}
+    by_lighting = sorted(
+        (
+            {
+                "nivel": level,
+                "total": v["total"],
+                "accuracy_pct": round(100.0 * v["correctas"] / v["total"], 1)
+                if v["total"]
+                else None,
+            }
+            for level, v in lighting.items()
+        ),
+        key=lambda x: lighting_order.get(x["nivel"], 99),
+    )
+
     total = sum(v["total"] for v in per_gesture.values())
     correct_total = sum(v["correctas"] for v in per_gesture.values())
 
@@ -467,6 +536,8 @@ def stats_accuracy():
         {
             "per_gesture": per_gesture_out,
             "confusion": confusion,
+            "by_finger": by_finger,
+            "by_lighting": by_lighting,
             "overall_accuracy_pct": round(100.0 * correct_total / total, 1)
             if total
             else None,

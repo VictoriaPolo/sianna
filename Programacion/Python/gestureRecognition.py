@@ -60,6 +60,13 @@ GESTURES = {
     (0, 1, 0, 0, 1): "rock",
 }
 UNKNOWN_GESTURE = "gesto_no_reconocido"
+FINGERS_BY_GESTURE = {name: fingers for fingers, name in GESTURES.items()}
+
+
+def frame_brightness(img):
+    """Brillo promedio del frame (escala de grises, 0-255). El panel web lo
+    agrupa en Baja/Media/Alta para relacionar precisión con condición de luz."""
+    return float(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).mean())
 
 
 def classify_gesture(fingers):
@@ -161,6 +168,13 @@ def run_accuracy_test(cap, detector, serial_conn, metrics):
 
         response_time_ms = (time.time() - start_time) * 1000.0
         correct = (stable_gesture == expected) and not timed_out
+        brightness = frame_brightness(img)
+        expected_fingers = list(FINGERS_BY_GESTURE[expected])
+        detected_fingers = (
+            list(FINGERS_BY_GESTURE[stable_gesture])
+            if stable_gesture in FINGERS_BY_GESTURE
+            else None
+        )
 
         if aborted:
             print("[gestureRecognition] Prueba de precisión cancelada por el usuario.")
@@ -172,6 +186,9 @@ def run_accuracy_test(cap, detector, serial_conn, metrics):
             correct=correct,
             response_time_ms=None if timed_out and stable_gesture is None else response_time_ms,
             timed_out=timed_out,
+            brightness=brightness,
+            expected_fingers=expected_fingers,
+            detected_fingers=detected_fingers,
         )
 
         if correct:

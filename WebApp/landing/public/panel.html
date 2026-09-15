@@ -238,6 +238,18 @@
       <h3>Matriz de confusión (gesto esperado vs. detectado)</h3>
       <div class="table-scroll" id="confusion-wrap"></div>
     </div>
+
+    <div class="chart-card">
+      <h3>Errores por dedo (esperado vs. detectado)</h3>
+      <div class="chart-wrap"><canvas id="chart-fingers"></canvas></div>
+      <div class="empty" id="fingers-empty" style="display:none">Aún no hay datos suficientes.</div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Precisión por condición de luz</h3>
+      <div class="chart-wrap"><canvas id="chart-lighting"></canvas></div>
+      <div class="empty" id="lighting-empty" style="display:none">Aún no hay datos suficientes.</div>
+    </div>
   </section>
 
   <!-- ===================== TIEMPOS DE RESPUESTA ===================== -->
@@ -284,7 +296,7 @@
 
 </main>
 
-<footer>SIANNA · datos guardados localmente en sianna.db</footer>
+<footer>SIANNA · datos guardados en la nube (Postgres)</footer>
 
 <script>
 const API = "";
@@ -417,7 +429,7 @@ async function pollLive() {
 setInterval(pollLive, 400);
 
 // ------------------------------------------------------------- stats ----
-let accuracyChart, latencyChart, latencyStagesChart, repetitionsChart;
+let accuracyChart, latencyChart, latencyStagesChart, repetitionsChart, fingersChart, lightingChart;
 const STAGE_LABELS = { captura_ms: "Captura", mediapipe_ms: "MediaPipe", inferencia_ms: "Inferencia", serial_ms: "Serial", servo_ms: "Servo" };
 
 function barChart(ctx, labels, data, label) {
@@ -473,6 +485,20 @@ async function refreshAccuracy() {
     html += "</tbody></table>";
     confusionWrap.innerHTML = html;
   }
+
+  const fingerLabels = data.by_finger.map(f => f.finger);
+  const fingerValues = data.by_finger.map(f => f.errores);
+  document.getElementById("fingers-empty").style.display = data.n_tests ? "none" : "block";
+  if (fingersChart) fingersChart.destroy();
+  fingersChart = barChart(document.getElementById("chart-fingers"), fingerLabels, fingerValues, "Errores");
+
+  const lightingLabels = data.by_lighting.map(l => l.nivel);
+  const lightingValues = data.by_lighting.map(l => l.accuracy_pct);
+  document.getElementById("lighting-empty").style.display = lightingLabels.length ? "none" : "block";
+  if (lightingChart) lightingChart.destroy();
+  lightingChart = barChart(document.getElementById("chart-lighting"), lightingLabels, lightingValues, "% de acierto");
+  lightingChart.options.scales.y.max = 100;
+  lightingChart.update();
 }
 
 async function refreshLatency() {
