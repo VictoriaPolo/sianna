@@ -23,6 +23,7 @@ int pinky_pin = 32;
 // Variable para almacenar los datos recibidos
 String data = "";
 int fingers[5] = {0, 0, 0, 0, 0}; // Array para almacenar el estado de cada dedo
+int angles[5] = {0, 0, 0, 0, 0}; // Último ángulo aplicado a cada servo (pulgar..meñique)
 
 void setup() {
   
@@ -53,9 +54,11 @@ void loop() {
     // Controlar los dedos de acuerdo con los datos recibidos
     controlFingers();
 
-    // Confirmar por serial que el comando ya fue aplicado a los servos
-    // (usado desde Python para medir la latencia de la etapa "servo").
-    Serial.println("ACK");
+    // Confirmar por serial que el comando ya fue aplicado, e informar el
+    // ángulo real que se mandó a cada servo (calibración, no un sensor de
+    // posición: es el ángulo objetivo, no el que el servo llegó a alcanzar).
+    Serial.println("ACK," + String(angles[0]) + "," + String(angles[1]) + "," +
+                    String(angles[2]) + "," + String(angles[3]) + "," + String(angles[4]));
   }
   
   // Esperar un pequeño tiempo para evitar saturar el puerto serial
@@ -85,41 +88,26 @@ void parseData(String inputData) {
 
 // Función para controlar los dedos según los datos recibidos
 void controlFingers() {
-  
+
   // Controlar el pulgar
-  if (fingers[0] == 1) {
-    thumb.write(thumb_open_pos); // Pulgar abierto
-  } else {
-    thumb.write(thumb_close_pos); // Pulgar cerrado
-  }
-  
+  angles[0] = (fingers[0] == 1) ? thumb_open_pos : thumb_close_pos;
+  thumb.write(angles[0]);
+
   // Controlar el índice
-  if (fingers[1] == 1) {
-    ind.write(index_open_pos); // Índice abierto
-  } else {
-    ind.write(index_close_pos); // Índice cerrado
-  }
-  
+  angles[1] = (fingers[1] == 1) ? index_open_pos : index_close_pos;
+  ind.write(angles[1]);
+
   // Controlar el dedo medio
-  if (fingers[2] == 1) {
-    middle.write(middle_open_pos); // Medio abierto
-  } else {
-    middle.write(middle_close_pos); // Medio cerrado
-  }
-  
+  angles[2] = (fingers[2] == 1) ? middle_open_pos : middle_close_pos;
+  middle.write(angles[2]);
+
   // Controlar el anular
-  if (fingers[3] == 1) {
-    ring.write(ring_open_pos); // Anular abierto
-  } else {
-    ring.write(ring_close_pos); // Anular cerrado
-  }
-  
+  angles[3] = (fingers[3] == 1) ? ring_open_pos : ring_close_pos;
+  ring.write(angles[3]);
+
   // Controlar el meñique
-  if (fingers[4] == 1) {
-    pinky.write(pinky_open_pos); // Meñique abierto
-  } else {
-    pinky.write(pinky_close_pos); // Meñique cerrado
-  }
+  angles[4] = (fingers[4] == 1) ? pinky_open_pos : pinky_close_pos;
+  pinky.write(angles[4]);
 }
 
 // Función para abrir todos los dedos

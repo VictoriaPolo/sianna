@@ -256,13 +256,23 @@ def main():
 
             serial_ms = None
             servo_ms = None
+            servo_angles = None
             if serial_conn is not None:
                 # ¿Llegó la confirmación (ACK) del último comando enviado al ESP32?
                 # Se revisa sin bloquear para no frenar la captura de video.
                 if pending_ack_since is not None and serial_conn.in_waiting > 0:
-                    serial_conn.readline()
+                    ack_line = serial_conn.readline().decode(errors="ignore").strip()
                     servo_ms = (time.time() - pending_ack_since) * 1000.0
                     pending_ack_since = None
+                    # El ESP32 devuelve "ACK,<pulgar>,<indice>,<medio>,<anular>,<meñique>"
+                    # con el ángulo (0-180) que acaba de aplicar a cada servo, según su
+                    # calibración de apertura/cierre. No es un sensor de posición: es el
+                    # ángulo objetivo, no el que el servo llegó a alcanzar realmente.
+                    if ack_line.startswith("ACK,"):
+                        try:
+                            servo_angles = [int(v) for v in ack_line.split(",")[1:6]]
+                        except ValueError:
+                            servo_angles = None
 
                 # Solo se reenvía cuando el estado de los dedos cambia: evita saturar
                 # el puerto serial y permite emparejar cada envío con su propio ACK.
@@ -306,6 +316,7 @@ def main():
                     inferencia_ms=inferencia_ms,
                     serial_ms=serial_ms,
                     servo_ms=servo_ms,
+                    servo_angles=servo_angles,
                 )
 
             draw_overlay(img, [

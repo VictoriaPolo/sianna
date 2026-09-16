@@ -121,6 +121,7 @@ class MetricsClient:
         inferencia_ms=None,
         serial_ms=None,
         servo_ms=None,
+        servo_angles=None,
     ):
         if not self.enabled or not self.session_id:
             return
@@ -140,6 +141,7 @@ class MetricsClient:
                     "inferencia_ms": inferencia_ms,
                     "serial_ms": serial_ms,
                     "servo_ms": servo_ms,
+                    "servo_angles": list(servo_angles) if servo_angles is not None else None,
                 },
             )
         )

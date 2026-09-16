@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS gesture_events (
     mediapipe_ms REAL,
     inferencia_ms REAL,
     serial_ms REAL,
-    servo_ms REAL
+    servo_ms REAL,
+    servo_angles TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_session ON gesture_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_events_gesture ON gesture_events(gesture_name);
@@ -131,6 +132,7 @@ MIGRATIONS = [
     "ALTER TABLE accuracy_tests ADD COLUMN IF NOT EXISTS brightness REAL",
     "ALTER TABLE accuracy_tests ADD COLUMN IF NOT EXISTS expected_fingers TEXT",
     "ALTER TABLE accuracy_tests ADD COLUMN IF NOT EXISTS detected_fingers TEXT",
+    "ALTER TABLE gesture_events ADD COLUMN IF NOT EXISTS servo_angles TEXT",
 ]
 
 
@@ -170,6 +172,7 @@ _live_state = {
     "updated_at": None,
     "test_active": False,
     "test_prompt": None,
+    "servo_angles": None,
 }
 
 
@@ -275,14 +278,15 @@ def add_event():
     inferencia_ms = payload.get("inferencia_ms")
     serial_ms = payload.get("serial_ms")
     servo_ms = payload.get("servo_ms")
+    servo_angles = payload.get("servo_angles")
 
     db = get_db()
     db.execute(
         """
         INSERT INTO gesture_events
             (session_id, ts, gesture_name, fingers, latency_ms, fps, hand_detected, is_transition,
-             captura_ms, mediapipe_ms, inferencia_ms, serial_ms, servo_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             captura_ms, mediapipe_ms, inferencia_ms, serial_ms, servo_ms, servo_angles)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             session_id,
@@ -298,11 +302,12 @@ def add_event():
             inferencia_ms,
             serial_ms,
             servo_ms,
+            json.dumps(servo_angles) if servo_angles is not None else None,
         ),
     )
     db.commit()
 
-    update_live_state(
+    live_update = dict(
         session_id=session_id,
         gesture_name=gesture_name,
         fingers=fingers,
@@ -310,6 +315,9 @@ def add_event():
         fps=fps,
         hand_detected=bool(hand_detected),
     )
+    if servo_angles is not None:
+        live_update["servo_angles"] = servo_angles
+    update_live_state(**live_update)
     return jsonify({"ok": True})
 
 
@@ -393,6 +401,36 @@ def stats_repetitions():
         params,
     ).fetchall()
     return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/stats/servo_angles", methods=["GET"])
+def stats_servo_angles():
+    """Ángulo promedio que se le mandó a cada servo (calibración de
+    apertura/cierre del ESP32, no una medición real de posición)."""
+    db = get_db()
+    clause, params = _session_filter_clause()
+    rows = db.execute(
+        f"""
+        SELECT servo_angles FROM gesture_events
+        WHERE servo_angles IS NOT NULL {clause}
+        """,
+        params,
+    ).fetchall()
+
+    sums = [0, 0, 0, 0, 0]
+    n = 0
+    for r in rows:
+        angles = json.loads(r["servo_angles"])
+        for i, a in enumerate(angles):
+            sums[i] += a
+        n += 1
+
+    return jsonify(
+        [
+            {"finger": label, "angulo_prom": round(sums[i] / n, 1) if n else None}
+            for i, label in enumerate(FINGER_LABELS)
+        ]
+    )
 
 
 STAGE_COLUMNS = ["captura_ms", "mediapipe_ms", "inferencia_ms", "serial_ms", "servo_ms"]
