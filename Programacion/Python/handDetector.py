@@ -82,6 +82,17 @@ class handDetector():
  
         return fingers
  
+    def handedness(self, handNo=0):
+        """Devuelve (mano, confianza) según la clasificación de MediaPipe:
+        mano = "Left" o "Right", confianza = score 0-1. None si no hay mano.
+        Ojo: MediaPipe asume que la imagen viene espejada (cámara selfie); si
+        gestureRecognition.py no voltea el frame, "Left"/"Right" puede salir
+        invertido respecto a la mano real del usuario."""
+        if not self.results.multi_handedness:
+            return None, None
+        classification = self.results.multi_handedness[handNo].classification[0]
+        return classification.label, classification.score
+
     def findDistance(self, p1, p2, img, draw=True,r=15, t=3):
         x1, y1 = self.lmList[p1][1:]
         x2, y2 = self.lmList[p2][1:]

@@ -101,10 +101,14 @@ class MetricsClient:
             )
         return self.session_id
 
-    def end_session(self):
+    def end_session(self, commands_sent=None, commands_acked=None):
         if not self.enabled or not self.session_id:
             return
-        self._post(f"/api/sessions/{self.session_id}/end", {}, timeout=2.0)
+        self._post(
+            f"/api/sessions/{self.session_id}/end",
+            {"commands_sent": commands_sent, "commands_acked": commands_acked},
+            timeout=2.0,
+        )
 
     # -- eventos (cada frame / cada gesto estable) --------------------------------
 
@@ -122,6 +126,7 @@ class MetricsClient:
         serial_ms=None,
         servo_ms=None,
         servo_angles=None,
+        handedness=None,
     ):
         if not self.enabled or not self.session_id:
             return
@@ -142,6 +147,7 @@ class MetricsClient:
                     "serial_ms": serial_ms,
                     "servo_ms": servo_ms,
                     "servo_angles": list(servo_angles) if servo_angles is not None else None,
+                    "handedness": handedness,
                 },
             )
         )
@@ -158,6 +164,8 @@ class MetricsClient:
         brightness=None,
         expected_fingers=None,
         detected_fingers=None,
+        hand_size_px=None,
+        detection_confidence=None,
     ):
         if not self.enabled or not self.session_id:
             return
@@ -174,6 +182,8 @@ class MetricsClient:
                     "brightness": brightness,
                     "expected_fingers": list(expected_fingers) if expected_fingers is not None else None,
                     "detected_fingers": list(detected_fingers) if detected_fingers is not None else None,
+                    "hand_size_px": hand_size_px,
+                    "detection_confidence": detection_confidence,
                 },
             )
         )

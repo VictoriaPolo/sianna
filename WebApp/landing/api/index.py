@@ -48,7 +48,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     id SERIAL PRIMARY KEY,
     started_at TEXT NOT NULL,
     ended_at TEXT,
-    notes TEXT
+    notes TEXT,
+    commands_sent INTEGER,
+    commands_acked INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS gesture_events (
@@ -66,7 +68,8 @@ CREATE TABLE IF NOT EXISTS gesture_events (
     inferencia_ms REAL,
     serial_ms REAL,
     servo_ms REAL,
-    servo_angles TEXT
+    servo_angles TEXT,
+    handedness TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_session ON gesture_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_events_gesture ON gesture_events(gesture_name);
@@ -83,7 +86,9 @@ CREATE TABLE IF NOT EXISTS accuracy_tests (
     timed_out INTEGER NOT NULL DEFAULT 0,
     brightness REAL,
     expected_fingers TEXT,
-    detected_fingers TEXT
+    detected_fingers TEXT,
+    hand_size_px REAL,
+    detection_confidence REAL
 );
 CREATE INDEX IF NOT EXISTS idx_tests_session ON accuracy_tests(session_id);
 CREATE INDEX IF NOT EXISTS idx_tests_gesture ON accuracy_tests(expected_gesture);
@@ -133,6 +138,11 @@ MIGRATIONS = [
     "ALTER TABLE accuracy_tests ADD COLUMN IF NOT EXISTS expected_fingers TEXT",
     "ALTER TABLE accuracy_tests ADD COLUMN IF NOT EXISTS detected_fingers TEXT",
     "ALTER TABLE gesture_events ADD COLUMN IF NOT EXISTS servo_angles TEXT",
+    "ALTER TABLE accuracy_tests ADD COLUMN IF NOT EXISTS hand_size_px REAL",
+    "ALTER TABLE accuracy_tests ADD COLUMN IF NOT EXISTS detection_confidence REAL",
+    "ALTER TABLE gesture_events ADD COLUMN IF NOT EXISTS handedness TEXT",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS commands_sent INTEGER",
+    "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS commands_acked INTEGER",
 ]
 
 
@@ -232,9 +242,11 @@ def create_session():
 
 @app.route("/api/sessions/<int:session_id>/end", methods=["POST"])
 def end_session(session_id):
+    payload = request.get_json(silent=True) or {}
     db = get_db()
     db.execute(
-        "UPDATE sessions SET ended_at = ? WHERE id = ?", (now_iso(), session_id)
+        "UPDATE sessions SET ended_at = ?, commands_sent = ?, commands_acked = ? WHERE id = ?",
+        (now_iso(), payload.get("commands_sent"), payload.get("commands_acked"), session_id),
     )
     db.commit()
     with _live_lock:
@@ -248,7 +260,7 @@ def list_sessions():
     db = get_db()
     rows = db.execute(
         """
-        SELECT s.id, s.started_at, s.ended_at, s.notes,
+        SELECT s.id, s.started_at, s.ended_at, s.notes, s.commands_sent, s.commands_acked,
                (SELECT COUNT(*) FROM gesture_events e WHERE e.session_id = s.id) AS n_events,
                (SELECT COUNT(*) FROM accuracy_tests t WHERE t.session_id = s.id) AS n_tests
         FROM sessions s
@@ -279,14 +291,15 @@ def add_event():
     serial_ms = payload.get("serial_ms")
     servo_ms = payload.get("servo_ms")
     servo_angles = payload.get("servo_angles")
+    handedness = payload.get("handedness")
 
     db = get_db()
     db.execute(
         """
         INSERT INTO gesture_events
             (session_id, ts, gesture_name, fingers, latency_ms, fps, hand_detected, is_transition,
-             captura_ms, mediapipe_ms, inferencia_ms, serial_ms, servo_ms, servo_angles)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             captura_ms, mediapipe_ms, inferencia_ms, serial_ms, servo_ms, servo_angles, handedness)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             session_id,
@@ -303,6 +316,7 @@ def add_event():
             serial_ms,
             servo_ms,
             json.dumps(servo_angles) if servo_angles is not None else None,
+            handedness,
         ),
     )
     db.commit()
@@ -354,8 +368,8 @@ def add_accuracy_test():
         """
         INSERT INTO accuracy_tests
             (session_id, ts, expected_gesture, detected_gesture, correct, response_time_ms, timed_out,
-             brightness, expected_fingers, detected_fingers)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             brightness, expected_fingers, detected_fingers, hand_size_px, detection_confidence)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             payload["session_id"],
@@ -368,6 +382,8 @@ def add_accuracy_test():
             payload.get("brightness"),
             json.dumps(expected_fingers) if expected_fingers is not None else None,
             json.dumps(detected_fingers) if detected_fingers is not None else None,
+            payload.get("hand_size_px"),
+            payload.get("detection_confidence"),
         ),
     )
     db.commit()
@@ -433,7 +449,40 @@ def stats_servo_angles():
     )
 
 
+@app.route("/api/stats/handedness", methods=["GET"])
+def stats_handedness():
+    db = get_db()
+    clause, params = _session_filter_clause()
+    rows = db.execute(
+        f"""
+        SELECT handedness, COUNT(*) AS frames
+        FROM gesture_events
+        WHERE handedness IS NOT NULL {clause}
+        GROUP BY handedness
+        """,
+        params,
+    ).fetchall()
+    labels = {"Left": "Izquierda", "Right": "Derecha"}
+    return jsonify(
+        [{"mano": labels.get(r["handedness"], r["handedness"]), "frames": r["frames"]} for r in rows]
+    )
+
+
 STAGE_COLUMNS = ["captura_ms", "mediapipe_ms", "inferencia_ms", "serial_ms", "servo_ms"]
+
+
+def _summary_stats(values):
+    if not values:
+        return {}
+    sorted_vals = sorted(values)
+    return {
+        "avg": round(statistics.mean(values), 2),
+        "median": round(statistics.median(values), 2),
+        "min": round(min(values), 2),
+        "max": round(max(values), 2),
+        "p95": round(sorted_vals[int(len(sorted_vals) * 0.95) - 1], 2),
+        "n": len(values),
+    }
 
 
 @app.route("/api/stats/latency", methods=["GET"])
@@ -442,7 +491,7 @@ def stats_latency():
     clause, params = _session_filter_clause()
     rows = db.execute(
         f"""
-        SELECT ts, gesture_name, latency_ms
+        SELECT ts, gesture_name, latency_ms, fps
         FROM gesture_events
         WHERE latency_ms IS NOT NULL {clause}
         ORDER BY id ASC
@@ -451,19 +500,9 @@ def stats_latency():
         params,
     ).fetchall()
     values = [r["latency_ms"] for r in rows if r["latency_ms"] is not None]
-    summary = {}
-    if values:
-        sorted_vals = sorted(values)
-        summary = {
-            "avg": round(statistics.mean(values), 2),
-            "median": round(statistics.median(values), 2),
-            "min": round(min(values), 2),
-            "max": round(max(values), 2),
-            "p95": round(sorted_vals[int(len(sorted_vals) * 0.95) - 1], 2)
-            if sorted_vals
-            else None,
-            "n": len(values),
-        }
+    fps_values = [r["fps"] for r in rows if r["fps"] is not None]
+    summary = _summary_stats(values)
+    fps_summary = _summary_stats(fps_values)
 
     stages = {}
     for col in STAGE_COLUMNS:
@@ -474,7 +513,14 @@ def stats_latency():
         col_values = [r["v"] for r in col_rows]
         stages[col] = round(statistics.mean(col_values), 2) if col_values else None
 
-    return jsonify({"points": [dict(r) for r in rows], "summary": summary, "stages": stages})
+    return jsonify(
+        {
+            "points": [dict(r) for r in rows],
+            "summary": summary,
+            "fps_summary": fps_summary,
+            "stages": stages,
+        }
+    )
 
 
 FINGER_LABELS = ["Pulgar", "Índice", "Medio", "Anular", "Meñique"]
@@ -497,7 +543,7 @@ def stats_accuracy():
     rows = db.execute(
         f"""
         SELECT expected_gesture, detected_gesture, correct, response_time_ms, timed_out,
-               brightness, expected_fingers, detected_fingers
+               brightness, expected_fingers, detected_fingers, hand_size_px, detection_confidence
         FROM accuracy_tests
         WHERE 1 = 1 {clause}
         """,
@@ -509,6 +555,8 @@ def stats_accuracy():
     response_times = []
     finger_errors = [0, 0, 0, 0, 0]
     lighting = {}
+    hand_size_by_result = {"Correctas": [], "Incorrectas": []}
+    confidence_by_result = {"Correctas": [], "Incorrectas": []}
     for r in rows:
         exp = r["expected_gesture"]
         det = r["detected_gesture"] or "(sin detección / tiempo agotado)"
@@ -534,6 +582,12 @@ def stats_accuracy():
             lighting[bucket]["total"] += 1
             if r["correct"]:
                 lighting[bucket]["correctas"] += 1
+
+        result_key = "Correctas" if r["correct"] else "Incorrectas"
+        if r["hand_size_px"] is not None:
+            hand_size_by_result[result_key].append(r["hand_size_px"])
+        if r["detection_confidence"] is not None:
+            confidence_by_result[result_key].append(r["detection_confidence"])
 
     per_gesture_out = [
         {
@@ -567,6 +621,15 @@ def stats_accuracy():
         key=lambda x: lighting_order.get(x["nivel"], 99),
     )
 
+    by_hand_size = [
+        {"grupo": grupo, "tamano_prom_px": round(statistics.mean(vals), 1) if vals else None}
+        for grupo, vals in hand_size_by_result.items()
+    ]
+    by_confidence = [
+        {"grupo": grupo, "confianza_prom": round(statistics.mean(vals), 3) if vals else None}
+        for grupo, vals in confidence_by_result.items()
+    ]
+
     total = sum(v["total"] for v in per_gesture.values())
     correct_total = sum(v["correctas"] for v in per_gesture.values())
 
@@ -576,6 +639,8 @@ def stats_accuracy():
             "confusion": confusion,
             "by_finger": by_finger,
             "by_lighting": by_lighting,
+            "by_hand_size": by_hand_size,
+            "by_confidence": by_confidence,
             "overall_accuracy_pct": round(100.0 * correct_total / total, 1)
             if total
             else None,

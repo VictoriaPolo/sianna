@@ -251,6 +251,18 @@
       <div class="chart-wrap"><canvas id="chart-lighting"></canvas></div>
       <div class="empty" id="lighting-empty" style="display:none">Aún no hay datos suficientes.</div>
     </div>
+
+    <div class="chart-card">
+      <h3>Distancia de la mano a la cámara (correctas vs. incorrectas)</h3>
+      <div class="chart-wrap"><canvas id="chart-hand-size"></canvas></div>
+      <div class="empty" id="hand-size-empty" style="display:none">Aún no hay datos suficientes.</div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Confianza de detección (correctas vs. incorrectas)</h3>
+      <div class="chart-wrap"><canvas id="chart-confidence"></canvas></div>
+      <div class="empty" id="confidence-empty" style="display:none">Aún no hay datos suficientes.</div>
+    </div>
   </section>
 
   <!-- ===================== TIEMPOS DE RESPUESTA ===================== -->
@@ -260,6 +272,11 @@
       <div class="card"><h3>Mediana</h3><div class="stat-value" id="lat-median">—</div><div class="stat-label">ms</div></div>
       <div class="card"><h3>P95</h3><div class="stat-value" id="lat-p95">—</div><div class="stat-label">ms</div></div>
       <div class="card"><h3>Mínimo / Máximo</h3><div class="stat-value" id="lat-minmax">—</div><div class="stat-label">ms</div></div>
+    </div>
+    <div class="grid">
+      <div class="card"><h3>FPS promedio</h3><div class="stat-value" id="fps-avg">—</div><div class="stat-label">cuadros/seg</div></div>
+      <div class="card"><h3>FPS mediana</h3><div class="stat-value" id="fps-median">—</div><div class="stat-label">cuadros/seg</div></div>
+      <div class="card"><h3>FPS mínimo / máximo</h3><div class="stat-value" id="fps-minmax">—</div><div class="stat-label">cuadros/seg</div></div>
     </div>
     <div class="chart-card">
       <h3>Latencia por evento (más recientes primero → orden cronológico)</h3>
@@ -286,6 +303,12 @@
       <div class="chart-wrap"><canvas id="chart-servo-angles"></canvas></div>
       <div class="empty" id="servo-angles-empty" style="display:none">Aún no hay datos de ángulos registrados.</div>
     </div>
+
+    <div class="chart-card">
+      <h3>Lateralidad de la mano detectada</h3>
+      <div class="chart-wrap"><canvas id="chart-handedness"></canvas></div>
+      <div class="empty" id="handedness-empty" style="display:none">Aún no hay datos suficientes.</div>
+    </div>
   </section>
 
   <!-- ===================== SESIONES ===================== -->
@@ -294,7 +317,7 @@
       <h3>Historial de sesiones</h3>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>ID</th><th>Inicio</th><th>Fin</th><th class="num">Eventos</th><th class="num">Pruebas</th><th>Notas</th></tr></thead>
+          <thead><tr><th>ID</th><th>Inicio</th><th>Fin</th><th class="num">Eventos</th><th class="num">Pruebas</th><th class="num">Comandos</th><th class="num">% ACK</th><th>Notas</th></tr></thead>
           <tbody id="sessions-body"></tbody>
         </table>
       </div>
@@ -364,17 +387,22 @@ async function loadSessions() {
 
   const body = document.getElementById("sessions-body");
   if (!sessions.length) {
-    body.innerHTML = `<tr><td colspan="6" class="empty">Aún no hay sesiones. Ejecuta gestureRecognition.py.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8" class="empty">Aún no hay sesiones. Ejecuta gestureRecognition.py.</td></tr>`;
   } else {
-    body.innerHTML = sessions.map(s => `
+    body.innerHTML = sessions.map(s => {
+      const ackPct = (s.commands_sent) ? `${(100 * s.commands_acked / s.commands_sent).toFixed(0)}%` : "—";
+      return `
       <tr>
         <td>#${s.id}</td>
         <td>${new Date(s.started_at).toLocaleString()}</td>
         <td>${s.ended_at ? new Date(s.ended_at).toLocaleString() : "—"}</td>
         <td class="num">${s.n_events}</td>
         <td class="num">${s.n_tests}</td>
+        <td class="num">${s.commands_sent != null ? s.commands_sent : "—"}</td>
+        <td class="num">${ackPct}</td>
         <td>${s.notes || ""}</td>
-      </tr>`).join("");
+      </tr>`;
+    }).join("");
   }
 }
 document.getElementById("session-select").addEventListener("change", (e) => {
@@ -438,7 +466,7 @@ async function pollLive() {
 setInterval(pollLive, 400);
 
 // ------------------------------------------------------------- stats ----
-let accuracyChart, latencyChart, latencyStagesChart, repetitionsChart, fingersChart, lightingChart, servoAnglesChart;
+let accuracyChart, latencyChart, latencyStagesChart, repetitionsChart, fingersChart, lightingChart, servoAnglesChart, handSizeChart, confidenceChart, handednessChart;
 const STAGE_LABELS = { captura_ms: "Captura", mediapipe_ms: "MediaPipe", inferencia_ms: "Inferencia", serial_ms: "Serial", servo_ms: "Servo" };
 
 function barChart(ctx, labels, data, label) {
@@ -508,6 +536,28 @@ async function refreshAccuracy() {
   lightingChart = barChart(document.getElementById("chart-lighting"), lightingLabels, lightingValues, "% de acierto");
   lightingChart.options.scales.y.max = 100;
   lightingChart.update();
+
+  const handSizeData = (data.by_hand_size || []).filter(g => g.tamano_prom_px != null);
+  document.getElementById("hand-size-empty").style.display = handSizeData.length ? "none" : "block";
+  if (handSizeChart) handSizeChart.destroy();
+  handSizeChart = barChart(
+    document.getElementById("chart-hand-size"),
+    handSizeData.map(g => g.grupo),
+    handSizeData.map(g => g.tamano_prom_px),
+    "Diagonal del bbox (px)"
+  );
+
+  const confidenceData = (data.by_confidence || []).filter(g => g.confianza_prom != null);
+  document.getElementById("confidence-empty").style.display = confidenceData.length ? "none" : "block";
+  if (confidenceChart) confidenceChart.destroy();
+  confidenceChart = barChart(
+    document.getElementById("chart-confidence"),
+    confidenceData.map(g => g.grupo),
+    confidenceData.map(g => g.confianza_prom),
+    "Confianza (0-1)"
+  );
+  confidenceChart.options.scales.y.max = 1;
+  confidenceChart.update();
 }
 
 async function refreshLatency() {
@@ -518,6 +568,11 @@ async function refreshLatency() {
   document.getElementById("lat-median").textContent = s.median != null ? s.median : "—";
   document.getElementById("lat-p95").textContent = s.p95 != null ? s.p95 : "—";
   document.getElementById("lat-minmax").textContent = (s.min != null) ? `${s.min} / ${s.max}` : "—";
+
+  const fs = data.fps_summary || {};
+  document.getElementById("fps-avg").textContent = fs.avg != null ? fs.avg : "—";
+  document.getElementById("fps-median").textContent = fs.median != null ? fs.median : "—";
+  document.getElementById("fps-minmax").textContent = (fs.min != null) ? `${fs.min} / ${fs.max}` : "—";
 
   const points = data.points || [];
   document.getElementById("latency-empty").style.display = points.length ? "none" : "block";
@@ -571,6 +626,17 @@ async function refreshRepetitions() {
   );
   servoAnglesChart.options.scales.y.max = 180;
   servoAnglesChart.update();
+
+  const handednessRes = await fetch(`${API}/api/stats/handedness?session_id=${currentSession}`);
+  const handednessData = await handednessRes.json();
+  document.getElementById("handedness-empty").style.display = handednessData.length ? "none" : "block";
+  if (handednessChart) handednessChart.destroy();
+  handednessChart = barChart(
+    document.getElementById("chart-handedness"),
+    handednessData.map(d => d.mano),
+    handednessData.map(d => d.frames),
+    "Frames"
+  );
 }
 
 async function refreshStats() {

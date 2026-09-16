@@ -22,6 +22,7 @@ Antes de ejecutar:
     3) pip install -r requeriments.txt  (y additionally: pip install requests)
 """
 
+import math
 import random
 import time
 from collections import deque
@@ -48,6 +49,7 @@ EVENT_LOG_EVERY_N_FRAMES = 3  # para no saturar la base de datos, se registra 1 
 
 ACCURACY_TEST_REPS_PER_GESTURE = 5
 ACCURACY_TEST_TIMEOUT_S = 5.0
+PENDING_ACK_TIMEOUT_S = 0.3  # si el ESP32 no confirma un comando en este tiempo, se da por perdido
 
 # Mapeo estado-de-dedos -> nombre de gesto. fingers = [pulgar, indice, medio, anular, meñique]
 # 1 = extendido/abierto, 0 = flexionado/cerrado. Ajusta o agrega combinaciones según necesites.
@@ -134,7 +136,7 @@ def run_accuracy_test(cap, detector, serial_conn, metrics):
                 continue
 
             img = detector.findHands(img)
-            lmList, _ = detector.findPosition(img)
+            lmList, bbox = detector.findPosition(img)
             raw_gesture = None
             if len(lmList) != 0:
                 fingers = detector.fingersUp()
@@ -169,6 +171,8 @@ def run_accuracy_test(cap, detector, serial_conn, metrics):
         response_time_ms = (time.time() - start_time) * 1000.0
         correct = (stable_gesture == expected) and not timed_out
         brightness = frame_brightness(img)
+        hand_size_px = math.hypot(bbox[2] - bbox[0], bbox[3] - bbox[1]) if bbox else None
+        _, detection_confidence = detector.handedness()
         expected_fingers = list(FINGERS_BY_GESTURE[expected])
         detected_fingers = (
             list(FINGERS_BY_GESTURE[stable_gesture])
@@ -189,6 +193,8 @@ def run_accuracy_test(cap, detector, serial_conn, metrics):
             brightness=brightness,
             expected_fingers=expected_fingers,
             detected_fingers=detected_fingers,
+            hand_size_px=hand_size_px,
+            detection_confidence=detection_confidence,
         )
 
         if correct:
@@ -229,6 +235,8 @@ def main():
     frame_counter = 0
     last_sent_fingers = None
     pending_ack_since = None  # timestamp del último comando serial aún sin ACK del ESP32
+    commands_sent = 0
+    commands_acked = 0
 
     print("[gestureRecognition] Controles: [q] salir   [t] iniciar prueba de precision")
 
@@ -248,10 +256,12 @@ def main():
             gesture_name = None
             fingers = None
 
+            handedness_label = None
             if hand_detected:
                 fingers = detector.fingersUp()
                 gesture_name = classify_gesture(fingers)
                 stable_buffer.append(gesture_name)
+                handedness_label, _ = detector.handedness()
             t_inferencia = time.time()
 
             serial_ms = None
@@ -264,6 +274,7 @@ def main():
                     ack_line = serial_conn.readline().decode(errors="ignore").strip()
                     servo_ms = (time.time() - pending_ack_since) * 1000.0
                     pending_ack_since = None
+                    commands_acked += 1
                     # El ESP32 devuelve "ACK,<pulgar>,<indice>,<medio>,<anular>,<meñique>"
                     # con el ángulo (0-180) que acaba de aplicar a cada servo, según su
                     # calibración de apertura/cierre. No es un sensor de posición: es el
@@ -273,6 +284,12 @@ def main():
                             servo_angles = [int(v) for v in ack_line.split(",")[1:6]]
                         except ValueError:
                             servo_angles = None
+                elif pending_ack_since is not None and (time.time() - pending_ack_since) > PENDING_ACK_TIMEOUT_S:
+                    # ponytail: comando dado por perdido tras el timeout. Si el ACK viejo
+                    # llega más tarde, se confunde con el del próximo comando (un solo
+                    # "casillero" pendiente, sin número de secuencia) -> % de confirmación
+                    # es aproximado, no exacto. Mejorarlo requeriría IDs de comando.
+                    pending_ack_since = None
 
                 # Solo se reenvía cuando el estado de los dedos cambia: evita saturar
                 # el puerto serial y permite emparejar cada envío con su propio ACK.
@@ -285,6 +302,7 @@ def main():
                     )
                     serial_ms = (time.time() - t_serial0) * 1000.0
                     pending_ack_since = time.time()
+                    commands_sent += 1
                     last_sent_fingers = list(fingers)
 
             c_time = time.time()
@@ -317,6 +335,7 @@ def main():
                     serial_ms=serial_ms,
                     servo_ms=servo_ms,
                     servo_angles=servo_angles,
+                    handedness=handedness_label,
                 )
 
             draw_overlay(img, [
@@ -333,7 +352,7 @@ def main():
                 run_accuracy_test(cap, detector, serial_conn, metrics)
                 p_time = time.time()
     finally:
-        metrics.end_session()
+        metrics.end_session(commands_sent=commands_sent, commands_acked=commands_acked)
         metrics.close()
         if serial_conn is not None:
             serial_conn.close()
